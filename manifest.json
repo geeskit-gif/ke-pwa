@@ -1,0 +1,32 @@
+{
+  "name": "KE",
+  "short_name": "KE",
+  "description": "DOS IDIOMAS. UN PUENTE. \u2014 Espa\u00f1ol \u2194 Krey\u00f2l Ayisyen",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#0F0F0F",
+  "background_color": "#0F0F0F",
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "./icons/ke-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/ke-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/ke-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0F0F0F">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="KE">
+<link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png">
+<link rel="apple-touch-icon" href="./icons/ke-192.png">
+<link rel="manifest" href="./manifest.json">
+<title>KE — DOS IDIOMAS. UN PUENTE.</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Inter,sans-serif;background:#0F0F0F;color:#F5F3EF;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+.mono{font-family:'JetBrains Mono',monospace}
+button{font-family:inherit;cursor:pointer}
+.clip-left{clip-path:polygon(0 0,100% 0,92% 100%,0 100%)}
+.clip-right{clip-path:polygon(8% 0,100% 0,100% 100%,0 100%)}
+.clip-btn{clip-path:polygon(0 0,96% 0,100% 100%,0 100%)}
+.pulse{animation:pulse 1.2s infinite}
+@keyframes pulse{0%{transform:scale(1)}50%{transform:scale(1.03)}100%{transform:scale(1)}}
+.sweep{animation:sweep 1s linear infinite}
+@keyframes sweep{0%{width:0}100%{width:100%}}
+.wave{animation:wave 0.8s ease-in-out infinite}
+@keyframes wave{0%,100%{height:8px}50%{height:24px}}
+.install-bar{position:fixed;bottom:0;left:50%;transform:translateX(-50%);max-width:440px;width:100%;background:#F5F3EF;color:#0F0F0F;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;border-top:2px solid #E11D26;z-index:99}
+@media(prefers-reduced-motion:reduce){.pulse,.sweep,.wave{animation:none}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script type="text/babel">
+const {useState,useEffect,useRef}=React;
+const NLLB="https://winstxnhdw-nllb-api.hf.space/api/v4/translator";
+async function translateReal(text, dir){
+  const source=dir==='es-kr'?'spa_Latn':'hat_Latn';
+  const target=dir==='es-kr'?'hat_Latn':'spa_Latn';
+  try{
+    const r=await fetch(NLLB,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,source,target})});
+    if(r.ok){const d=await r.json(); const t=d.result||d.translation||d.translated_text||d.text||d.output; if(t) return {text:t.trim(),raw:d};}
+  }catch{}
+  const url=`${NLLB}?text=${encodeURIComponent(text)}&source=${source}&target=${target}`;
+  const r=await fetch(url);
+  if(!r.ok) throw new Error('NLLB '+r.status);
+  const d=await r.json();
+  const t=d.result||d.translation||d.translated_text||d.text||d.output;
+  if(!t) throw new Error('empty');
+  return {text:t.trim(),raw:d};
+}
+function App(){
+  const [theme,setTheme]=useState(localStorage.getItem('ke_theme')||'dark');
+  const [mode,setMode]=useState('texto');
+  const [dir,setDir]=useState('es-kr');
+  const [input,setInput]=useState('');
+  const [result,setResult]=useState('');
+  const [loading,setLoading]=useState(false);
+  const [error,setError]=useState('');
+  const [history,setHistory]=useState(()=>{try{return JSON.parse(localStorage.getItem('ke_history')||'[]')}catch{return []}});
+  const [showHist,setShowHist]=useState(false);
+  const [copyOk,setCopyOk]=useState(false);
+  const [liveState,setLiveState]=useState('LISTO');
+  const [heard,setHeard]=useState('');
+  const [translated,setTranslated]=useState('');
+  const [liveHist,setLiveHist]=useState(()=>{try{return JSON.parse(localStorage.getItem('ke_live_history')||'[]')}catch{return []}});
+  const [micError,setMicError]=useState('');
+  const [installPrompt,setInstallPrompt]=useState(null);
+  const [showInstall,setShowInstall]=useState(false);
+  const mediaRecorderRef=useRef(null);
+  const recognitionRef=useRef(null);
+  
+  useEffect(()=>{localStorage.setItem('ke_theme',theme)},[theme]);
+  useEffect(()=>{localStorage.setItem('ke_history',JSON.stringify(history))},[history]);
+  useEffect(()=>{localStorage.setItem('ke_live_history',JSON.stringify(liveHist))},[liveHist]);
+  useEffect(()=>{
+    if('serviceWorker' in navigator){navigator.serviceWorker.register('./sw.js').then(()=>console.log('SW registered')).catch(e=>console.error('SW fail',e));}
+    window.addEventListener('beforeinstallprompt',(e)=>{e.preventDefault();setInstallPrompt(e);setShowInstall(true);});
+    window.addEventListener('appinstalled',()=>{setShowInstall(false);});
+  },[]);
+
+  const doTranslate=async()=>{
+    if(!input.trim()) return;
+    setLoading(true);setError('');
+    try{
+      const r=await translateReal(input.trim(),dir);
+      setResult(r.text);
+      const item={id:Date.now(),source:input.trim(),target:r.text,dir,ts:new Date().toISOString()};
+      setHistory(h=>[item,...h].slice(0,50));
+    }catch(e){setError('No pudimos traducir este mensaje. Inténtalo nuevamente.');}
+    finally{setLoading(false)}
+  };
+  const copy=async()=>{await navigator.clipboard.writeText(result);setCopyOk(true);setTimeout(()=>setCopyOk(false),2000);};
+  const toggleDir=()=>setDir(d=>d==='es-kr'?'kr-es':'es-kr');
+  const speak=(text, lang)=>{
+    if(!('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const u=new SpeechSynthesisUtterance(text);
+    u.lang=lang==='hat_Latn'?'fr-FR':'es-ES';
+    const voices=window.speechSynthesis.getVoices();
+    const v=voices.find(v=>v.lang.toLowerCase().startsWith(lang==='hat_Latn'?'fr':'es'))||voices[0];
+    if(v) u.voice=v;
+    u.onstart=()=>setLiveState('HABLANDO...');
+    u.onend=()=>setLiveState('LISTO');
+    window.speechSynthesis.speak(u);
+  };
+  const startListening=async()=>{
+    setMicError('');setHeard('');setTranslated('');
+    const isEs=dir==='es-kr';
+    const hasRecognition=!!(window.SpeechRecognition||window.webkitSpeechRecognition);
+    if(hasRecognition && isEs){
+      const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+      const rec=new SR();rec.lang='es-ES';rec.interimResults=false;rec.maxAlternatives=1;
+      recognitionRef.current=rec;
+      rec.onstart=()=>setLiveState('ESCUCHANDO...');
+      rec.onresult=async(e)=>{
+        const transcript=e.results[0][0].transcript;
+        setHeard(transcript);setLiveState('TRADUCIENDO...');
+        try{const r=await translateReal(transcript,dir);setTranslated(r.text);setLiveState('LISTO');setLiveHist(h=>[{id:Date.now(),source:transcript,target:r.text,dir,ts:new Date().toISOString()},...h].slice(0,30));}
+        catch(err){setLiveState('ERROR');setMicError('No pudimos traducir. Inténtalo nuevamente.');}
+      };
+      rec.onerror=(e)=>{if(e.error==='not-allowed'){setLiveState('ERROR');setMicError('Permiso de micrófono denegado. Activa el micrófono en tu navegador.');}else{setLiveState('ERROR');setMicError('No pudimos escuchar. Inténtalo nuevamente.');}};
+      rec.onend=()=>{if(liveState==='ESCUCHANDO...') setLiveState('LISTO');};
+      rec.start();return;
+    }
+    try{
+      const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+      setLiveState('ESCUCHANDO...');
+      const mr=new MediaRecorder(stream);
+      mediaRecorderRef.current=mr;
+      let chunks=[];
+      mr.ondataavailable=e=>{if(e.data.size>0) chunks.push(e.data)};
+      mr.onstop=async()=>{
+        setLiveState('PROCESANDO...');
+        const blob=new Blob(chunks,{type:'audio/webm'});
+        if(blob.size<1000){setMicError('No se detectó audio.');setLiveState('ERROR');stream.getTracks().forEach(t=>t.stop());return;}
+        try{
+          // HT STT intentionally unavailable without server - honest label
+          setMicError('Voz kreyòl: STT en servidor no disponible sin endpoint propio (clementzach/whisper-small-ht requiere HF token). Usa modo TEXTO.');
+          setLiveState('ERROR');
+        }catch(e){setMicError('Error STT');setLiveState('ERROR');}
+        stream.getTracks().forEach(t=>t.stop());
+      };
+      mr.start();
+      let audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+      let src=audioCtx.createMediaStreamSource(stream);
+      let analyser=audioCtx.createAnalyser();analyser.fftSize=2048;src.connect(analyser);
+      let silenceStart=null;let startTime=Date.now();
+      const check=()=>{
+        if(mr.state!=='recording') return;
+        const data=new Uint8Array(analyser.fftSize);analyser.getByteTimeDomainData(data);
+        let sum=0;for(let v of data){let a=v-128;sum+=a*a;}let rms=Math.sqrt(sum/data.length);
+        if(rms<8){if(!silenceStart) silenceStart=Date.now(); if(Date.now()-silenceStart>1200){mr.stop();return;}}else silenceStart=null;
+        if(Date.now()-startTime>8000){mr.stop();return;}
+        requestAnimationFrame(check);
+      };check();
+    }catch(e){setLiveState('ERROR');setMicError('Permiso de micrófono denegado. Activa el micrófono para usar KE LIVE.');}
+  };
+  const stopAll=()=>{window.speechSynthesis.cancel();if(recognitionRef.current) try{recognitionRef.current.stop()}catch{};if(mediaRecorderRef.current&&mediaRecorderRef.current.state==='recording') mediaRecorderRef.current.stop();setLiveState('LISTO');};
+
+  const bg=theme==='dark'?'#0F0F0F':'#F5F3EF';
+  const text=theme==='dark'?'#F5F3EF':'#0F0F0F';
+  const surface=theme==='dark'?'#1A1A1E':'#E8E5E0';
+  const border=theme==='dark'?'#2A2A2E':'#D0CCC6';
+  const sec=theme==='dark'?'#A8A9AD':'#6B6B6B';
+  return (
+    <div style={{background:bg,color:text,minHeight:'100vh',transition:'all 0.2s'}}>
+      <div style={{maxWidth:440,margin:'0 auto',minHeight:'100vh',borderLeft:`1px solid ${border}`,borderRight:`1px solid ${border}`,display:'flex',flexDirection:'column'}}>
+        <div style={{padding:'24px 20px 8px',display:'flex',flexDirection:'column',alignItems:'center',borderBottom:`1px solid ${border}`}}>
+          <img src="./icons/ke-master.png" alt="KE" style={{maxHeight:64,width:'auto'}}/>
+          <div className="mono" style={{fontSize:10,letterSpacing:'0.18em',color:sec,marginTop:12}}>DOS IDIOMAS. UN PUENTE.</div>
+          <div style={{display:'flex',justifyContent:'space-between',width:'100%',marginTop:16}}>
+            <button onClick={()=>setTheme(t=>t==='dark'?'light':'dark')} className="mono" style={{fontSize:10,padding:'8px 12px',border:`1px solid ${border}`,background:'transparent',color:text}}>MODO: {theme==='dark'?'OSCURO':'CLARO'}</button>
+            <button onClick={()=>setShowHist(true)} className="mono" style={{fontSize:10,padding:'8px 12px',border:`1px solid ${border}`,background:'transparent',color:text}}>HISTORIAL</button>
+          </div>
+        </div>
+        <div style={{display:'flex',padding:12,borderBottom:`1px solid ${border}`}}>
+          <button onClick={()=>setMode('texto')} className="mono clip-left" style={{flex:1,height:44,background:mode==='texto'?(theme==='dark'?'#F5F3EF':'#0F0F0F'):'transparent',color:mode==='texto'?(theme==='dark'?'#0F0F0F':'#F5F3EF'):sec,border:`1px solid ${border}`,fontSize:11,fontWeight:600}}>TEXTO</button>
+          <button onClick={()=>setMode('live')} className="mono clip-right" style={{flex:1,height:44,background:mode==='live'?(theme==='dark'?'#F5F3EF':'#0F0F0F'):'transparent',color:mode==='live'?(theme==='dark'?'#0F0F0F':'#F5F3EF'):sec,border:`1px solid ${border}`,borderLeft:'none',fontSize:11,fontWeight:600}}>LIVE</button>
+        </div>
+        {mode==='texto'?(
+          <>
+            <div style={{padding:16}}>
+              <div style={{display:'flex',height:48,border:`1px solid ${border}`}}>
+                <button onClick={()=>setDir('es-kr')} className="mono clip-left" style={{flex:1,background:dir==='es-kr'?(theme==='dark'?'#F5F3EF':'#0F0F0F'):'transparent',color:dir==='es-kr'?(theme==='dark'?'#0F0F0F':'#F5F3EF'):sec,border:'none',fontSize:11,fontWeight:600}}>ESPAÑOL</button>
+                <button onClick={toggleDir} style={{width:48,borderLeft:`1px solid ${border}`,borderRight:`1px solid ${border}`,background:'transparent',color:text,fontSize:18}}>↔</button>
+                <button onClick={()=>setDir('kr-es')} className="mono clip-right" style={{flex:1,background:dir==='kr-es'?(theme==='dark'?'#F5F3EF':'#0F0F0F'):'transparent',color:dir==='kr-es'?(theme==='dark'?'#0F0F0F':'#F5F3EF'):sec,border:'none',fontSize:11,fontWeight:600}}>KREYÒL</button>
+              </div>
+              <div className="mono" style={{fontSize:10,color:sec,textAlign:'center',marginTop:8}}>{dir==='es-kr'?'ESPAÑOL → KREYÒL AYISYEN':'KREYÒL AYISYEN → ESPAÑOL'}</div>
+            </div>
+            <div style={{margin:'0 16px',border:`1px solid ${border}`,background:surface}}>
+              <textarea value={input} onChange={e=>setInput(e.target.value.slice(0,500))} placeholder={dir==='es-kr'?'Escribe un mensaje...':'Ekri yon mesaj...'} style={{width:'100%',minHeight:148,background:'transparent',color:text,border:'none',padding:20,fontSize:20,lineHeight:1.5,resize:'none',outline:'none'}}/>
+              <div style={{display:'flex',justifyContent:'space-between',padding:'8px 16px',borderTop:`1px solid ${border}`}}><span className="mono" style={{fontSize:10,color:sec}}>{input.length} / 500</span>{input&&<button onClick={()=>{setInput('');setResult('');}} className="mono" style={{fontSize:10,color:sec,background:'transparent',border:'none'}}>BORRAR</button>}</div>
+            </div>
+            <div style={{padding:16}}><button onClick={doTranslate} disabled={!input.trim()||loading} className="mono clip-btn" style={{width:'100%',height:56,background:!input.trim()?border:'#E11D26',color:'#F5F3EF',border:'none',fontSize:12,letterSpacing:'0.14em',fontWeight:600,opacity:!input.trim()?0.5:1}}>{loading?'TRADUCIENDO...':'TRADUCIR'}</button>{loading&&<div style={{height:2,background:'#E11D26',marginTop:8}} className="sweep"/>}</div>
+            {error&&<div style={{margin:'0 16px',padding:20,border:'1px solid #E11D26',background:'#1A1011'}}><div style={{fontSize:14}}>No pudimos traducir este mensaje. Inténtalo nuevamente.</div><button onClick={doTranslate} className="mono" style={{marginTop:12,width:'100%',height:48,background:'#E11D26',color:'#fff',border:'none',fontSize:11}}>REINTENTAR</button></div>}
+            {result&&!loading&&<div style={{margin:'0 16px',border:`1px solid ${border}`,borderTop:'2px solid #E11D26',background:surface}}><div style={{display:'flex',justifyContent:'space-between',padding:'10px 16px',borderBottom:`1px solid ${border}`}}><span className="mono" style={{fontSize:10,color:sec}}>{dir==='es-kr'?'KREYÒL AYISYEN →':'ESPAÑOL →'}</span><span className="mono" style={{fontSize:9,color:sec}}>RESULTADO</span></div><div style={{padding:20,fontSize:22,lineHeight:1.4}}>{result}</div><div style={{display:'flex',borderTop:`1px solid ${border}`}}><button onClick={copy} className="mono" style={{flex:1,height:48,background:copyOk?(theme==='dark'?'#F5F3EF':'#0F0F0F'):'transparent',color:copyOk?(theme==='dark'?'#0F0F0F':'#F5F3EF'):text,border:'none',borderRight:`1px solid ${border}`,fontSize:11}}>{copyOk?'COPIADO':'COPIAR'}</button><button onClick={()=>{setInput(result);setResult('');}} className="mono" style={{width:80,height:48,background:'transparent',color:text,border:'none',borderRight:`1px solid ${border}`,fontSize:11}}>EDITAR</button><button onClick={()=>{setInput('');setResult('');setError('');}} className="mono" style={{width:80,height:48,background:'transparent',color:text,border:'none',fontSize:11}}>NUEVA</button></div></div>}
+          </>
+        ):(
+          <div style={{padding:16,display:'flex',flexDirection:'column',gap:16}}>
+            <div style={{display:'flex',height:48,border:`1px solid ${border}`}}><button onClick={()=>setDir('es-kr')} className="mono clip-left" style={{flex:1,background:dir==='es-kr'?(theme==='dark'?'#F5F3EF':'#0F0F0F'):'transparent',color:dir==='es-kr'?(theme==='dark'?'#0F0F0F':'#F5F3EF'):sec,border:'none',fontSize:11,fontWeight:600}}>ESPAÑOL → KREYÒL</button><button onClick={toggleDir} style={{width:48,borderLeft:`1px solid ${border}`,borderRight:`1px solid ${border}`,background:'transparent',color:text}}>↔</button><button onClick={()=>setDir('kr-es')} className="mono clip-right" style={{flex:1,background:dir==='kr-es'?(theme==='dark'?'#F5F3EF':'#0F0F0F'):'transparent',color:dir==='kr-es'?(theme==='dark'?'#0F0F0F':'#F5F3EF'):sec,border:'none',fontSize:11,fontWeight:600}}>KREYÒL → ESPAÑOL</button></div>
+            <div style={{display:'flex',flexDirection:'column',alignItems:'center',padding:'24px 0'}}><button onClick={()=>liveState==='ESCUCHANDO...'?stopAll():startListening()} style={{width:120,height:120,border:`2px solid ${liveState==='ESCUCHANDO...'?'#E11D26':liveState==='ERROR'?'#E11D26':border}`,background:liveState==='ESCUCHANDO...'?'rgba(225,29,38,0.1)':'transparent',clipPath:'polygon(8% 0,100% 0,92% 100%,0 100%)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:36}} className={liveState==='ESCUCHANDO...'?'pulse':''}>🎙</button><div className="mono" style={{marginTop:16,fontSize:11,letterSpacing:'0.14em',color:liveState==='ESCUCHANDO...'?'#E11D26':sec,fontWeight:600}}>{liveState}</div>{liveState==='ESCUCHANDO...'&&<div style={{display:'flex',gap:4,marginTop:12}}><div className="wave" style={{width:4,background:'#E11D26'}}></div><div className="wave" style={{width:4,background:'#E11D26',animationDelay:'0.1s'}}></div><div className="wave" style={{width:4,background:'#E11D26',animationDelay:'0.2s'}}></div></div>}</div>
+            {micError&&<div style={{padding:12,border:'1px solid #E11D26',background:'#1A1011',fontSize:13}}>{micError}</div>}
+            {(heard||translated)&&<div style={{border:`1px solid ${border}`,borderTop:'2px solid #E11D26',background:surface}}>{heard&&<div style={{padding:16,borderBottom:`1px solid ${border}`}}><div className="mono" style={{fontSize:9,color:sec,marginBottom:6}}>ESCUCHADO</div><div style={{fontSize:18}}>{heard}</div></div>}{translated&&<div style={{padding:16}}><div className="mono" style={{fontSize:9,color:sec,marginBottom:6}}>TRADUCCIÓN</div><div style={{fontSize:20,lineHeight:1.4}}>{translated}</div></div>}<div style={{display:'flex',borderTop:`1px solid ${border}`}}><button onClick={()=>speak(translated, dir==='es-kr'?'hat_Latn':'spa_Latn')} className="mono" style={{flex:1,height:44,background:'transparent',color:text,border:'none',borderRight:`1px solid ${border}`,fontSize:10}}>🔊 REPRODUCIR</button><button onClick={stopAll} className="mono" style={{flex:1,height:44,background:'transparent',color:text,border:'none',borderRight:`1px solid ${border}`,fontSize:10}}>⏹ DETENER</button><button onClick={()=>{setHeard('');setTranslated('');setMicError('');}} className="mono" style={{flex:1,height:44,background:'transparent',color:text,border:'none',fontSize:10}}>🗑 BORRAR</button></div></div>}
+            {liveHist.length>0&&<div><div className="mono" style={{fontSize:10,color:sec,marginBottom:8}}>CONVERSACIÓN · {liveHist.length}</div>{liveHist.map(item=><div key={item.id} style={{padding:12,borderBottom:`1px solid ${border}`,background:surface,marginBottom:8}}><div className="mono" style={{fontSize:9,color:sec}}>{new Date(item.ts).toLocaleTimeString()} · {item.dir}</div><div style={{fontSize:14,marginTop:4,color:sec}}>{item.source}</div><div style={{fontSize:14,marginTop:2}}>{item.target}</div></div>)}<button onClick={()=>setLiveHist([])} className="mono" style={{width:'100%',height:40,border:`1px solid ${border}`,background:'transparent',color:sec,fontSize:10}}>BORRAR CONVERSACIÓN</button></div>}
+          </div>
+        )}
+        <div style={{marginTop:'auto',padding:24,textAlign:'center',borderTop:`1px solid ${border}`}}><div className="mono" style={{fontSize:9,color:sec,letterSpacing:'0.12em'}}>KE — DOS IDIOMAS. UN PUENTE.</div></div>
+      </div>
+      {showHist&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'flex-end',zIndex:50}}><div style={{width:360,maxWidth:'85vw',background:bg,borderLeft:`1px solid ${border}`,overflowY:'auto'}}><div style={{padding:16,borderBottom:`1px solid ${border}`,display:'flex',justifyContent:'space-between'}}><span className="mono" style={{fontSize:11}}>HISTORIAL · {history.length}</span><button onClick={()=>setShowHist(false)} style={{background:'transparent',border:'none',color:text}}>✕</button></div>{history.length===0?<div className="mono" style={{padding:24,fontSize:12,color:sec,textAlign:'center'}}>No hay traducciones aún.</div>:history.map(h=><div key={h.id} onClick={()=>{setInput(h.source);setResult(h.target);setDir(h.dir);setShowHist(false);}} style={{padding:16,borderBottom:`1px solid ${border}`,cursor:'pointer'}}><div className="mono" style={{fontSize:9,color:sec}}>{new Date(h.ts).toLocaleTimeString()} · {h.dir}</div><div style={{fontSize:13,marginTop:4,color:sec,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{h.source}</div><div style={{fontSize:13,marginTop:2,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{h.target}</div></div>)}{history.length>0&&<button onClick={()=>setHistory([])} className="mono" style={{width:'100%',height:48,border:'none',borderTop:`1px solid ${border}`,background:'transparent',color:'#E11D26',fontSize:10}}>BORRAR HISTORIAL</button>}</div></div>}
+      {showInstall&&<div className="install-bar"><span className="mono" style={{fontSize:11,fontWeight:600}}>INSTALAR KE</span><div><button onClick={async()=>{if(installPrompt){installPrompt.prompt();const {outcome}=await installPrompt.userChoice;if(outcome==='accepted') setShowInstall(false);}}} className="mono" style={{padding:'8px 12px',background:'#0F0F0F',color:'#F5F3EF',border:'none',fontSize:10,marginRight:8}}>INSTALAR</button><button onClick={()=>setShowInstall(false)} className="mono" style={{padding:'8px 12px',background:'transparent',border:'1px solid #0F0F0F',fontSize:10}}>X</button></div></div>}
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
